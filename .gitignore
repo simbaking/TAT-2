@@ -7,3 +7,4 @@ java_runtime/
 out/
 /bin/
 web/tournament_state*.json
+.env
