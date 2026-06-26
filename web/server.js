@@ -53,7 +53,7 @@ app.post('/api/report-issue', async (req, res) => {
         res.json({ success: true, message: 'Issue reported successfully.' });
     } catch (err) {
         console.error('Error sending issue report:', err);
-        res.status(500).json({ error: 'Failed to send issue report.' });
+        res.status(500).json({ error: 'Failed to send issue report.', details: err.message });
     }
 });
 
