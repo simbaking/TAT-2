@@ -1269,10 +1269,14 @@ async function handleLogin() {
 
 async function handleLogout() {
     if (authToken) {
-        await fetch('/api/logout', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${authToken}` }
-        });
+        try {
+            await fetch('/api/logout', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+        } catch (e) {
+            console.error('Logout error:', e);
+        }
     }
     authToken = null;
     authUsername = null;

@@ -1,4 +1,35 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+const { MongoClient } = require('mongodb');
+
+let dbClient;
+let db;
+let usersCollection;
+let sessionsCollection;
+let tournamentStateCollection;
+let issuesCollection;
+const mongoUri = process.env.MONGODB_URI;
+
+async function connectDB() {
+    if (!mongoUri) {
+        console.error('[DB] No MONGODB_URI found.');
+        return false;
+    }
+    try {
+        dbClient = new MongoClient(mongoUri);
+        await dbClient.connect();
+        db = dbClient.db('chessDB');
+        usersCollection = db.collection('users');
+        sessionsCollection = db.collection('sessions');
+        tournamentStateCollection = db.collection('tournament_state');
+        issuesCollection = db.collection('issues');
+        console.log('[DB] Connected to MongoDB');
+        return true;
+    } catch (err) {
+        console.error('[DB] Failed to connect to MongoDB', err);
+        return false;
+    }
+}
+
 const express = require('express');
 const nodemailer = require('nodemailer');
 const path = require('path');
@@ -36,7 +67,86 @@ app.post('/api/report-issue', async (req, res) => {
     const { issue } = req.body;
     if (!issue) return res.status(400).json({ error: 'Issue text is required' });
 
-    // Save to memory
+    const issueDoc = {
+        action: 'report',
+        id: Date.now(),
+        date: new Date().toISOString(),
+        issue: issue
+    };
+
+    if (typeof issuesCollection !== 'undefined' && issuesCollection) {
+        issuesCollection.insertOne(issueDoc).catch(e => console.error('Error saving issue to DB', e));
+    } else {
+        if (typeof globalIssues !== 'undefined') globalIssues.push(`[${new Date().toISOString()}] ${issue}`);
+    }
+
+    const webhookUrl = process.env.GOOGLE_SHEETS_WEBHOOK_URL;
+    if (webhookUrl) {
+        fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(issueDoc)
+        }).catch(err => console.error('Error sending issue to Google Sheets webhook:', err));
+    } else {
+        console.warn('GOOGLE_SHEETS_WEBHOOK_URL is not set. Issue not saved to Google Sheets.');
+    }
+
+    try {
+        const transporter = nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 587,
+            secure: false, // upgrade later with STARTTLS
+            requireTLS: true,
+            auth: {
+                user: 'changfourafrica@gmail.com',
+                pass: process.env.EMAIL_PASSWORD || 'zbenvnfttszofycj'
+            },
+            connectionTimeout: 10000, // 10 seconds timeout instead of 60s
+            greetingTimeout: 10000,
+            socketTimeout: 10000
+        });
+
+        const mailOptions = {
+            from: 'changfourafrica@gmail.com',
+            to: 'changfourafrica@gmail.com',
+            subject: 'chess tournament issue',
+            text: `a user of the chess tournament app has had this issue : ${issue}`
+        };
+
+        await transporter.sendMail(mailOptions);
+        res.json({ success: true, message: 'Issue reported successfully.' });
+    } catch (err) {
+        console.error('Error sending issue report email:', err);
+        res.json({ success: true, message: 'Issue reported but email failed.' });
+    }
+});
+
+// Admin Endpoint to view reported issues directly
+app.get('/api/admin/issues', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    const sheetUrl = process.env.GOOGLE_SHEET_UI_URL || '#';
+    res.send(`
+        <html>
+            <head>
+                <title>Admin - Issues</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 40px; text-align: center; }
+                    .btn { display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; }
+                    .btn:hover { background-color: #45a049; }
+                    p { font-size: 1.2em; color: #555; }
+                </style>
+            </head>
+            <body>
+                <h2>Tournament Issues Admin</h2>
+                <p>Issues are tracked in MongoDB and synced to Google Sheets!</p>
+                <p>You can view them, sort them, and mark them as "Dealt With" directly in the spreadsheet.</p>
+                <br/>
+                <a href="${sheetUrl}" class="btn" target="_blank">Open Google Sheets Dashboard</a>
+            </body>
+        </html>
+    `);
+});
+// Save to memory
     globalIssues.push(`[${new Date().toISOString()}] ${issue}`);
 
     try {
@@ -294,7 +404,11 @@ function saveState() {
             activeGames: Array.from(activeGames.values()).map(g => g.toJSON()),
             gameOffers: gameOffers
         };
-        fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+        if (typeof tournamentStateCollection !== 'undefined' && tournamentStateCollection) {
+            tournamentStateCollection.updateOne({ _id: 'stateData' }, { $set: { data: state } }, { upsert: true }).catch(err => console.error('[DB] Failed to save state', err));
+        } else {
+            fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+        }
 
         // Persist Elos of human players back to users.json
         let usersChanged = false;
@@ -315,12 +429,20 @@ function saveState() {
     }
 }
 
-function loadState() {
+async function loadState() {
     if (!fs.existsSync(STATE_FILE)) return;
 
     try {
-        console.log('[STATE_LOAD] Loading tournament state...');
-        const data = JSON.parse(fs.readFileSync(STATE_FILE));
+    let data;
+    if (typeof tournamentStateCollection !== 'undefined' && tournamentStateCollection) {
+        const doc = await tournamentStateCollection.findOne({ _id: 'stateData' });
+        if (doc) data = doc.data;
+    }
+    if (!data && fs.existsSync(STATE_FILE)) {
+        data = JSON.parse(fs.readFileSync(STATE_FILE));
+    }
+    if (!data) return;
+    console.log('[STATE_LOAD] Loading tournament state...');
 
         // Verbose logging for debugging timer issues
         const savedTimestamp = data.timestamp;
@@ -439,7 +561,7 @@ function loadState() {
 }
 
 // Load state on startup
-loadState();
+// loadState();
 
 function recordTournamentResults() {
     const sortedPlayers = tournament.getPlayers().sort((a, b) => b.getElo() - a.getElo());
@@ -713,15 +835,38 @@ function loadSessions() {
 
 function saveSessions() {
     try {
-        fs.writeFileSync(SESSIONS_FILE, JSON.stringify(activeSessions, null, 2), 'utf8');
+        if (typeof sessionsCollection !== 'undefined' && sessionsCollection) {
+            sessionsCollection.updateOne({ _id: 'sessionsData' }, { $set: { data: activeSessions } }, { upsert: true }).catch(err => console.error(err));
+        } else {
+            fs.writeFileSync(SESSIONS_FILE, JSON.stringify(activeSessions, null, 2), 'utf8');
+        }
     } catch (err) {
         console.error('Error saving sessions:', err);
     }
 }
 
 // Load users
-function loadUsers() {
+async function loadUsers() {
     try {
+        if (typeof usersCollection !== 'undefined' && usersCollection) {
+            const usersDoc = await usersCollection.findOne({ _id: 'usersData' });
+            if (usersDoc && usersDoc.data) users = usersDoc.data;
+            const sessionsDoc = await sessionsCollection.findOne({ _id: 'sessionsData' });
+            if (sessionsDoc && sessionsDoc.data) activeSessions = sessionsDoc.data;
+            
+            let changed = false;
+            const now = Date.now();
+            for (const username in users) {
+                if (now - (users[username].lastLogin || 0) > 90 * 24 * 60 * 60 * 1000) {
+                    delete users[username];
+                    changed = true;
+                }
+            }
+            if (changed) {
+                if (typeof saveUsers === 'function') saveUsers();
+            }
+            return;
+        }
         if (fs.existsSync(USERS_FILE)) {
             const data = fs.readFileSync(USERS_FILE, 'utf8');
             users = JSON.parse(data);
@@ -746,12 +891,16 @@ function loadUsers() {
 }
 function saveUsers() {
     try {
-        fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+        if (typeof usersCollection !== 'undefined' && usersCollection) {
+            usersCollection.updateOne({ _id: 'usersData' }, { $set: { data: users } }, { upsert: true }).catch(err => console.error(err));
+        } else {
+            fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+        }
     } catch (err) {
         console.error('Error saving users:', err);
     }
 }
-loadUsers();
+// loadUsers();
 loadSessions();
 
 // Clean up old sessions daily
@@ -830,8 +979,19 @@ app.post('/api/logout', (req, res) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.split(' ')[1];
+        const username = activeSessions[token];
+        if (username) {
+            if (typeof tournament !== 'undefined' && tournament.unregisterPlayer) {
+                tournament.unregisterPlayer(username);
+            }
+            if (typeof gameOffers !== 'undefined') {
+                gameOffers = gameOffers.filter(o => o.player !== username);
+            }
+            console.log(`[LOGOUT] Unregistered player ${username} from tournament and removed their game offers`);
+        }
         delete activeSessions[token];
-        saveSessions();
+        if (typeof saveSessions === 'function') saveSessions();
+        else saveUsers();
     }
     res.json({ success: true });
 });
@@ -1829,7 +1989,12 @@ function parseTimeControl(input, inputIncrement = 0) {
 
 
 // Start server on 0.0.0.0 for LAN access
-app.listen(PORT, '0.0.0.0', () => {
+async function startServer() {
+    if (typeof connectDB === 'function') await connectDB();
+    if (typeof loadUsers === 'function') await loadUsers();
+    if (typeof loadState === 'function') await loadState();
+
+    app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n╔══════════════════════════════════════════════════════════════╗`);
     console.log(`║           Chess Tournament Server Started!                   ║`);
     console.log(`╚══════════════════════════════════════════════════════════════╝`);
@@ -1859,6 +2024,8 @@ app.listen(PORT, '0.0.0.0', () => {
 
     console.log(`\n────────────────────────────────────────────────────────────────`);
 });
+}
+startServer();
 
 // Prevent event loop from emptying (Keep-Alive)
 setInterval(() => { }, 1000 * 60 * 60); // 1 hour

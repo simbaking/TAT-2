@@ -463,6 +463,14 @@ if (tournament.checkIsRunning()) {
         }
     }, 1000);
 
+    function getRequiredPlayersForVariant(variant) {
+        if (!variant) return 2;
+        const v = variant.toLowerCase();
+        if (v.includes('4player') || v.includes('four') || v === 'bughouse') return 4;
+        if (v.includes('3player') || v.includes('three')) return 3;
+        return 2;
+    }
+
     // Start auto-matchmaking
     autoMatchmakingInterval = setInterval(() => {
         try {
@@ -490,6 +498,9 @@ if (tournament.checkIsRunning()) {
                     }
                 }
             }
+
+            // Ensure there are enough players in the tournament to play a game
+            if (players.length < 2) return;
 
             // Find idle computers
             const idleComputers = players.filter(p =>
@@ -522,6 +533,11 @@ if (tournament.checkIsRunning()) {
                 const match = TournamentAI.findBestMatch(bot, candidates, remainingTime, tournament);
 
                 if (match) {
+                    const requiredPlayers = getRequiredPlayersForVariant(match.variant);
+                    if (players.length < requiredPlayers) {
+                        console.log(`[MATCHMAKING] ${bot.getName()} skipping offer for ${match.variant} - requires ${requiredPlayers} players but tournament only has ${players.length}`);
+                        continue;
+                    }
                     const offer = {
                         id: offerIdCounter++,
                         player: bot.getName(),
