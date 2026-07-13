@@ -17,6 +17,7 @@
     "fairy-stockfish-nnue.wasm": "^1.1.11",
     "ffish": "^0.7.9",
     "ffish-es6": "^0.7.9",
+    "mongodb": "^7.5.0",
     "nodemailer": "^9.0.1",
     "pngjs": "^7.0.0",
     "sharp": "^0.34.5"
