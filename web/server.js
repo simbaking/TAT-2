@@ -154,38 +154,6 @@ app.get('/api/admin/issues', (req, res) => {
         </html>
     `);
 });
-// Save to memory
-    globalIssues.push(`[${new Date().toISOString()}] ${issue}`);
-
-    try {
-        const transporter = nodemailer.createTransport({
-            host: 'smtp.gmail.com',
-            port: 587,
-            secure: false, // upgrade later with STARTTLS
-            requireTLS: true,
-            auth: {
-                user: 'changfourafrica@gmail.com',
-                pass: process.env.EMAIL_PASSWORD
-            },
-            connectionTimeout: 10000,
-            greetingTimeout: 10000,
-            socketTimeout: 10000
-        });
-
-        const mailOptions = {
-            from: 'changfourafrica@gmail.com',
-            to: 'changfourafrica@gmail.com',
-            subject: 'chess tournament issue',
-            text: `a user of the chess tournament app has had this issue : ${issue}`
-        };
-
-        await transporter.sendMail(mailOptions);
-        res.json({ success: true, message: 'Issue reported successfully.' });
-    } catch (err) {
-        console.error('Error sending issue report email:', err);
-        res.json({ success: true, message: 'Issue reported but email failed.' });
-    }
-});
 
 // Admin Endpoint to view reported issues directly
 app.get('/api/admin/issues', (req, res) => {
