@@ -39,6 +39,14 @@ const ComputerPlayer = require('./lib/ComputerPlayer');
 const TournamentAI = require('./lib/TournamentAI');
 const GlobalAnalyzer = require('./lib/GlobalAnalyzer');
 
+function getRequiredPlayersForVariant(variant) {
+    if (!variant) return 2;
+    const v = variant.toLowerCase();
+    if (v.includes('4player') || v.includes('four') || v === 'bughouse') return 4;
+    if (v.includes('3player') || v.includes('three')) return 3;
+    return 2;
+}
+
 // Global error handlers - prevent crashes from unhandled errors
 process.on('uncaughtException', (err) => {
     console.error('[FATAL] Uncaught Exception:', err);
@@ -660,6 +668,9 @@ if (tournament.checkIsRunning()) {
             const remainingTime = tournament.getRemainingTime();
             const players = tournament.getPlayers();
 
+            // Ensure there are enough players in the tournament to play a game
+            if (players.length < 2) return;
+
             // Self-healing: clear busy state if player is not in any active game
             for (const p of players) {
                 if (p.isBusy()) {
@@ -711,9 +722,11 @@ if (tournament.checkIsRunning()) {
                 const match = TournamentAI.findBestMatch(bot, candidates, remainingTime, tournament);
 
                 if (match) {
-                    let reqPlayers = 2;
-                    if (match.variant === '4player') reqPlayers = 4;
-                    else if (match.variant === '3player_hex') reqPlayers = 3;
+                    const reqPlayers = getRequiredPlayersForVariant(match.variant);
+                    if (players.length < reqPlayers) {
+                        console.log(`[MATCHMAKING] ${bot.getName()} skipping offer for ${match.variant} - requires ${reqPlayers} players but tournament only has ${players.length}`);
+                        continue;
+                    }
 
                     const offer = {
                         id: offerIdCounter++,
@@ -1289,6 +1302,9 @@ app.post('/api/start', (req, res) => {
             const remainingTime = tournament.getRemainingTime();
             const players = tournament.getPlayers();
 
+            // Ensure there are enough players in the tournament to play a game
+            if (players.length < 2) return;
+
             // Self-healing: clear busy state if player is not in any active game
             for (const p of players) {
                 if (p.isBusy()) {
@@ -1342,9 +1358,11 @@ app.post('/api/start', (req, res) => {
                 const match = TournamentAI.findBestMatch(bot, candidates, remainingTime, tournament);
 
                 if (match) {
-                    let reqPlayers = 2;
-                    if (match.variant === '4player') reqPlayers = 4;
-                    else if (match.variant === '3player_hex') reqPlayers = 3;
+                    const reqPlayers = getRequiredPlayersForVariant(match.variant);
+                    if (players.length < reqPlayers) {
+                        console.log(`[MATCHMAKING] ${bot.getName()} skipping offer for ${match.variant} - requires ${reqPlayers} players but tournament only has ${players.length}`);
+                        continue;
+                    }
 
                     const offer = {
                         id: offerIdCounter++,
