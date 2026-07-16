@@ -191,6 +191,15 @@
     z-index: 5;
 }
 
+#chessboardCanvas {
+    max-width: 100%;
+    max-height: 70vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+
+
 .square:hover .valid-move-indicator {
     background-color: rgba(0, 0, 0, 0.4);
 }
@@ -971,6 +980,10 @@
         grid-template-rows: repeat(8, var(--square-size));
         border-radius: 0;
         border: none;
+    }
+
+    #chessboardCanvas {
+        max-height: calc(100svh - 325px);
     }
 
     .square {
