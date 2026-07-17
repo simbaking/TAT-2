@@ -1,10 +1,10 @@
 // Get game ID from URL
 const urlParams = new URLSearchParams(window.location.search);
 const gameId = urlParams.get('gameId') || urlParams.get('id');
-const currentPlayerName = urlParams.get('player') || localStorage.getItem('chess_tournament_player_name') || "";
+const currentPlayerName = urlParams.get('player') || localStorage.getItem('chess_tournament_player_name') || "Spectator";
 
-if (!gameId || !currentPlayerName) {
-    console.error('Missing gameId or player name, redirecting to index');
+if (!gameId) {
+    console.error('Missing gameId, redirecting to index');
     window.location.href = 'index.html';
 }
 
