@@ -167,7 +167,6 @@ const tournament = new Tournament();
 // Active games storage
 const activeGames = new Map();
 GlobalAnalyzer.setGamesMap(activeGames);
-let gameIdCounter = 1;
 let tournamentMonitorInterval = null;
 let autoMatchmakingInterval = null;
 let timeoutMonitorInterval = null;
@@ -200,8 +199,8 @@ function createGame(playersArray, timeControlMinutes, incrementSeconds = 0, time
             [gamePlayers[i], gamePlayers[j]] = [gamePlayers[j], gamePlayers[i]];
         }
 
-        // Generate ID
-        gameId = `game_${gameIdCounter++}`;
+        // Generate unique ID using timestamp and random string to avoid collisions across server restarts
+        gameId = `game_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
 
         console.log(`[COLOR] Matchup: original ${playersArray.join(' vs ')} -> randomized ${gamePlayers.join(', ')}`);
     } else {
