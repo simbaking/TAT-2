@@ -37,7 +37,7 @@ class ComputerPlayer {
         } else {
             // Use Stockfish for levels 0-20
             this.currentWorkerVariant = 'standard';
-            this.init('standard');
+            // Lazy load worker when actually needed in getBestMove
         }
     }
 
@@ -666,23 +666,32 @@ class ComputerPlayer {
         }
 
         // Stockfish for level 0+
-        // If the worker isn't ready yet, retry for up to 2 s before falling back.
+        if (!this.worker) {
+            const isFairy = ['crazyhouse', 'kingofthehill', 'atomic'].includes(variant);
+            this.currentWorkerVariant = isFairy ? 'crazyhouse' : 'standard';
+            this.init(this.currentWorkerVariant);
+        }
+
+        // If the worker isn't ready yet, retry for up to 15s before falling back.
         // This handles the race between game start and async Stockfish initialisation.
-        if (!this.isReady || !this.worker) {
-            const MAX_WAIT_ATTEMPTS = 20;
+        if (!this.isReady) {
+            const MAX_WAIT_ATTEMPTS = 150;
             const waitAttempt = (this._waitReadyAttempts || 0) + 1;
             this._waitReadyAttempts = waitAttempt;
 
             if (waitAttempt <= MAX_WAIT_ATTEMPTS) {
-                console.log(`[COMPUTER] Not ready yet (attempt ${waitAttempt}/${MAX_WAIT_ATTEMPTS}), retrying in 100ms...`);
-                setTimeout(() => this.getBestMove(fen, callback, remainingTimeMs, variant), 100);
+                // Don't log every 100ms to avoid spam, just occasionally
+                if (waitAttempt % 10 === 0) {
+                    console.log(`[COMPUTER] Not ready yet (attempt ${waitAttempt}/${MAX_WAIT_ATTEMPTS}), retrying in 100ms...`);
+                }
+                setTimeout(() => this.getBestMove(fen, callback, remainingTimeMs, variant, uciVariant), 100);
             } else {
-                // Give up waiting — use SimpleEngine as a one-time fallback
+                // Give up waiting — use SimpleEngine random move as a safe one-time fallback
                 this._waitReadyAttempts = 0;
-                console.warn('[COMPUTER] Worker never became ready — falling back to SimpleEngine');
+                console.warn('[COMPUTER] Worker never became ready — falling back to random move');
                 const SimpleEngine = require('./SimpleEngine');
                 const engine = new SimpleEngine();
-                engine.getMinimaxMove(fen, callback, 2);
+                engine.getRandomMove(fen, callback, variant);
             }
             return;
         }
